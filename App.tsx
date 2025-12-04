@@ -14,6 +14,7 @@ const App: React.FC = () => {
     tone: Tone.CLEAN,
     additionalInfo: '',
     productImages: [], // Initialize as empty array
+    productSizes: [], // Initialize as empty array
     modelImage: undefined,
     backgroundImage: undefined,
     referenceImage: undefined,

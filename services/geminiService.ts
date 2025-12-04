@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { FormData, Channel } from '../types';
-import { CHANNEL_OPTIONS } from '../constants';
+import { CHANNEL_OPTIONS, PRODUCT_SIZE_OPTIONS } from '../constants';
 
 // Initialize the API client
 const getAiClient = () => {
@@ -65,12 +65,10 @@ export const generateCreativePrompt = async (data: FormData): Promise<string> =>
     - 제품 이미지가 여러 개라면 세트 구성 설명 포함.
     - 모델 합성 시 “natural composite”, “consistent lighting”, “commercial photoshoot style” 포함.
     - 제품은 절대 변형하지 않는다는 문구 포함.
-    - 마지막에 “– aspect ratio …” 포함.
+    - **마지막에 반드시 Aspect Ratio(종횡비) 정보를 포함해야 합니다.**
+      - 일반 채널: "– aspect ratio X:Y"
+      - 네이버 GFA(커스텀): "– size WxHpx, aspect ratio W:H"
   `;
-
-  // Determine aspect ratio for the instruction
-  const channelOption = CHANNEL_OPTIONS.find(opt => opt.value === data.channel);
-  const targetAspectRatio = channelOption ? channelOption.aspectRatio : '1:1';
 
   // Construct parts for multimodal input
   const parts: any[] = [];
@@ -103,52 +101,77 @@ export const generateCreativePrompt = async (data: FormData): Promise<string> =>
     parts.push({ inlineData: { mimeType, data: base64Data } });
   }
 
+  // Construct size instructions
+  let sizeInstructions = "";
+  if (data.productImages && data.productImages.length > 0) {
+    sizeInstructions = data.productImages.map((_, index) => {
+      const sizeValue = data.productSizes?.[index] || 'Medium';
+      const sizeOption = PRODUCT_SIZE_OPTIONS.find(opt => opt.value === sizeValue) || PRODUCT_SIZE_OPTIONS[1];
+      return `- Product #${index + 1}: ${sizeOption.prompt}`;
+    }).join('\n    ');
+  }
+
+  // Determine Final Aspect Ratio or Size String
+  let aspectRatioString = "";
+  const channelOption = CHANNEL_OPTIONS.find(opt => opt.value === data.channel);
+  
+  if (data.channel === Channel.NAVER_GFA_CUSTOM) {
+     const w = data.gfaCustomWidth || "1200";
+     const h = data.gfaCustomHeight || "628";
+     aspectRatioString = `– size ${w}x${h}px, aspect ratio ${w}:${h}`;
+  } else {
+     const ratio = channelOption ? channelOption.aspectRatio : '1:1';
+     aspectRatioString = `– aspect ratio ${ratio}`;
+  }
+
   const textPrompt = `
-    아래 정보를 기반으로 이미지 생성 모델용 영어 한 문단 프롬프트를 만들어 주세요.
-
-    [입력 데이터 현황]
-    - 제품 이미지 개수: ${data.productImages.length}
-    - 모델 이미지 제공 여부: ${data.modelImage ? "Yes" : "No"}
-    - 배경 이미지 제공 여부: ${data.backgroundImage ? "Yes" : "No"}
-    - 레퍼런스 이미지 제공 여부: ${data.referenceImage ? "Yes" : "No"}
-
-    [이미지 매핑 가이드 (Image Mapping Guide)]
-    이 요청에 첨부된 처음 ${data.productImages.length}개의 이미지는 순서대로 "제품 #1", "제품 #2", ... 입니다.
-    사용자가 "제품 #1"을 특정 위치에 두라고 요청하면, 첫 번째 이미지를 의미합니다.
+    아래 정보를 기반으로 광고용 이미지 생성 모델에 바로 사용할 수 있는
+    "영어 한 문단 프롬프트"를 작성해 주세요.
 
     [제품 정보]
     제품명: ${data.productName}
     카테고리: (이미지 기반 자동 분석)
-    소구점(추가 요청사항): ${data.additionalInfo || 'N/A'}
-    (사용자가 특정 번호(예: #1, #2)를 언급했다면 위 매핑 가이드를 따라 정확히 배치하십시오.)
-
-    [광고 목적]
-    사용 목적: ${data.channel}
-    분위기: ${data.tone}
-    타겟: ${data.targetAudience || 'General Audience'}
-
-    [작성 규칙 - 데이터 유무에 따른 분기]
-    1. **모델 이미지 ${data.modelImage ? "있음(Yes)" : "없음(No)"}**:
-       ${data.modelImage 
-         ? "- 모델을 참고하되 비식별화하여 새로운 가상 모델 생성. 제품과 자연스럽게 합성." 
-         : "- **모델 묘사 절대 금지**. 사람 없이 오직 제품 단독 샷(Product-only)으로 구성."}
+    주요 소구점: ${data.additionalInfo || 'N/A'}
     
-    2. **배경 이미지 ${data.backgroundImage ? "있음(Yes)" : "없음(No)"}**:
-       ${data.backgroundImage 
-         ? "- 업로드된 배경의 톤앤매너를 참고하여 배경 재구성." 
-         : "- '분위기' 항목에 맞춰 어울리는 배경을 텍스트로 창작. 업로드된 배경 언급 금지."}
+    [이미지 매핑 및 크기 규칙]
+    제품 이미지 개수: ${data.productImages.length}
+    (처음 ${data.productImages.length}개의 이미지가 제품 이미지입니다.)
+    사용자가 지정한 제품별 크기/비중:
+    ${sizeInstructions}
+    (Do not change label, shape, or design. Adjust only display size/scale.)
 
-    3. **레퍼런스 이미지 ${data.referenceImage ? "있음(Yes)" : "없음(No)"}**:
-       ${data.referenceImage 
-         ? "- 레퍼런스의 조명/구도 스타일만 참고(복제 금지)." 
-         : "- 상업용 광고 표준 조명/구도 적용."}
+    [광고 정보]
+    사용 채널/목적: ${data.channel}
+    타겟: ${data.targetAudience || 'General Audience'}
+    분위기: ${data.tone}
+    
+    [업로드 데이터 현황]
+    - 모델 이미지 제공: ${data.modelImage ? "Yes" : "No"}
+    - 배경 이미지 제공: ${data.backgroundImage ? "Yes" : "No"}
+    - 레퍼런스 이미지 제공: ${data.referenceImage ? "Yes" : "No"}
 
-    4. **제품 변형 금지**: 제품의 형태, 비율, 디자인은 원본 그대로 유지.
+    [텍스트 정보 (Text Overlay Planning)]
+    *실제 텍스트를 생성하지 말고, 아래 위치에 문구가 들어갈 '공간(Negative Space)'을 확보하거나 배치를 설명하세요.*
+    메인 카피: ${data.headlineText ? `"${data.headlineText}"` : "(비어있음)"}
+    보조 카피: ${data.subText ? `"${data.subText}"` : "(비어있음)"}
+    CTA: ${data.ctaText ? `"${data.ctaText}"` : "(비어있음)"}
+    
+    메인 카피 위치: ${data.headlinePosition || 'N/A'}
+    보조 카피 위치: ${data.subPosition || 'N/A'}
+    CTA 위치: ${data.ctaPosition || 'N/A'}
 
-    [출력 포맷]
-    - 영어 한 문단
-    - natural composite / commercial photography / studio lighting 표현 포함
-    - 마지막에 aspect ratio ${targetAspectRatio} 포함
+    [네이버 GFA 커스텀 사이즈 정보]
+    ${data.channel === Channel.NAVER_GFA_CUSTOM ? `가로: ${data.gfaCustomWidth}px, 세로: ${data.gfaCustomHeight}px` : "해당 없음"}
+
+    [요청 사항]
+    - 사용 채널에 맞는 레이아웃과 텍스트 배치를 설계하세요.
+    - 텍스트는 "Korean headline text", "Korean sub text", "Korean CTA text"로 지칭하며, 각 위치에 따라 배치만 설명해 주세요.
+    - 네이버 GFA – 커스텀이며 width/height가 제공된 경우, 해당 픽셀 사이즈와 비율을 최우선으로 사용해 배너 구도를 설계하세요.
+    - 모델 이미지가 없다면 제품 중심 구도로, 있다면 비식별화된 가상 모델로 합성하세요.
+    
+    [출력 조건]
+    - 영어 한 문단으로 작성
+    - 마지막에 항상 aspect ratio 표기: "${aspectRatioString}"
   `;
 
   parts.push({ text: textPrompt });
@@ -185,7 +208,14 @@ export const generateCreativeImage = async (
 
   // Determine aspect ratio config based on channel
   const channelOption = CHANNEL_OPTIONS.find(opt => opt.value === channel);
-  const aspectRatio = channelOption ? channelOption.aspectRatio : '1:1';
+  // Default to 1:1 if unknown, but Gemini API usually expects specific enum strings.
+  // Supported: "1:1", "3:4", "4:3", "9:16", "16:9"
+  let aspectRatio = channelOption ? channelOption.aspectRatio : '1:1';
+
+  // Fallback for custom GFA: Use 1:1 or closest standard ratio since API doesn't support custom pixel size generation directly
+  if (channel === Channel.NAVER_GFA_CUSTOM) {
+     aspectRatio = '1:1'; 
+  }
 
   try {
     const parts: any[] = [];
