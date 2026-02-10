@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FormData, Channel, Tone, GenerationResult, GeminiError } from './types';
+import { FormData, Channel, Tone, GenerationResult, GeminiError, DesignStyle, BackgroundStyle, DecorativeStyle, DecorativeDensity, TextBlockPosition, TextBlockSize, ModelUsage } from './types';
 import InputForm from './components/InputForm';
 import ResultDisplay from './components/ResultDisplay';
 import { generateCreativePrompt, generateCreativeImage } from './services/geminiService';
@@ -13,11 +13,23 @@ const App: React.FC = () => {
     channel: Channel.SHOPPING_THUMBNAIL,
     tone: Tone.CLEAN,
     additionalInfo: '',
-    productImages: [], // Initialize as empty array
-    productSizes: [], // Initialize as empty array
+    productImages: [],
+    productSizes: [],
     modelImage: undefined,
+    modelUsageRule: ModelUsage.USE_MODEL,
     backgroundImage: undefined,
     referenceImage: undefined,
+    // New Fields Initialization
+    designStyle: DesignStyle.PREMIUM,
+    backgroundStyle: BackgroundStyle.SOFT_GRADIENT,
+    primaryColor: '#ffffff',
+    secondaryColor: '#f0f0f0',
+    useDecorativeElements: false,
+    decorativeStyle: DecorativeStyle.MINIMAL,
+    decorativeDensity: DecorativeDensity.LOW,
+    textBlockMainPosition: TextBlockPosition.CENTER,
+    textBlockMainSize: TextBlockSize.MEDIUM,
+    modificationRequest: '',
   });
 
   const [result, setResult] = useState<GenerationResult | null>(null);
@@ -30,15 +42,16 @@ const App: React.FC = () => {
     setResult(null);
 
     try {
-      // 1. Generate Text Prompt (Multimodal: Text + Multiple Images + Model Image)
       const promptText = await generateCreativePrompt(formData);
       
-      // 2. Determine Aspect Ratio Label for UI
-      const channelInfo = CHANNEL_OPTIONS.find(c => c.value === formData.channel);
-      const aspectRatioLabel = channelInfo ? channelInfo.aspectRatio : '1:1';
+      let aspectRatioLabel = '1:1';
+      if (formData.channel === Channel.NAVER_GFA_CUSTOM && formData.customRatioWidth && formData.customRatioHeight) {
+        aspectRatioLabel = `${formData.customRatioWidth}:${formData.customRatioHeight}`;
+      } else {
+        const channelInfo = CHANNEL_OPTIONS.find(c => c.value === formData.channel);
+        aspectRatioLabel = channelInfo ? channelInfo.aspectRatio : '1:1';
+      }
 
-      // 3. Generate Image
-      // Pass prompt, channel, product images, and model image for guided generation
       const imageUrl = await generateCreativeImage(
         promptText, 
         formData.channel, 
@@ -61,7 +74,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -69,7 +81,7 @@ const App: React.FC = () => {
               <Palette className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">썸네일 제작소</h1>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">요술 공장 지니</h1>
               <span className="text-xs text-slate-500 font-medium hidden sm:inline-block">AI Ad Creative Designer</span>
             </div>
           </div>
@@ -79,7 +91,6 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-grow p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2 text-sm">
@@ -91,7 +102,6 @@ const App: React.FC = () => {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-140px)] min-h-[600px]">
-          {/* Left: Controls */}
           <div className="lg:col-span-4 h-full">
             <InputForm 
               formData={formData} 
@@ -100,8 +110,6 @@ const App: React.FC = () => {
               isLoading={isLoading}
             />
           </div>
-
-          {/* Right: Results */}
           <div className="lg:col-span-8 h-full">
             <ResultDisplay result={result} isLoading={isLoading} />
           </div>
